@@ -169,6 +169,79 @@ class LDAPBackend4(LDAPBackend):
 class LDAPBackend5(LDAPBackend):
     settings_prefix = 'AUTH_LDAP_5_'
 
+class LDAPDomainBackend(LDAPBackend):
+    """ LDAP backend for multidomain Active Directory"""
+
+    user_domain = None
+    settings_prefix = "AUTH_LDAP_AD_"
+    # singleton
+    __get_connection = {}
+
+    def ad_controller(self,request=None):
+        try:
+            return self.settings.DOMAIN_SERVERS[self.user_domain][0]
+        except KeyError:
+            logger.error("No ldap server configured for domain %s", self.user_domain)
+        except IndexError:
+            logger.error("Setting for domain %s is not tuple", self.user_domain)
+
+    @property
+    def settings(self):
+        if self._settings is None:
+            self._settings = LDAPSettings(self.settings_prefix, {"DOMAIN_SERVERS": {}, "DOMAIN_USER_SEARCH": {}})
+            self._settings.SERVER_URI = self.ad_controller
+        return self._settings
+
+    @settings.setter
+    def settings(self, settings):
+        self._settings = settings
+
+    def get_user(self, user_id):
+        if not self.settings.DOMAIN_SERVERS:
+            return None
+        return super(LDAPDomainBackend, self).get_user(user_id)
+
+    def is_referral(self, search_dn):
+        base_dn = self.settings.DOMAIN_SERVERS[self.user_domain][1].lower()
+        return not search_dn.lower().endswith(base_dn)
+
+    def authenticate(self, request, username, password):
+        # not AD user in format Domain/User
+        username = username.replace("\\","/")
+        if "/" not in username:
+            return None
+        self.user_domain, username = username.split("/")
+        try:
+            self._settings.USER_SEARCH = self.settings.DOMAIN_USER_SEARCH[self.user_domain]
+        except KeyError:
+            logger.error("No DOMAIN_USER_SEARCH configured for Domain  %s", self.user_domain)
+            return None
+        return super(LDAPDomainBackend, self).authenticate(request,username, password)
+
+    def connection_to(self, search_dn):
+        search_dn = search_dn.lower()
+        for (domain, (_,base_dn)) in self.settings.DOMAIN_SERVERS.items():
+            if search_dn.endswith(base_dn.lower()):
+                return self._get_connection(domain)
+        
+    def _get_connection(self, domain):
+        """
+        Returns our cached LDAPObject, which may or may not be bound.
+        """
+        if domain not in self.__get_connection:
+            uri = self.settings.DOMAIN_SERVERS[domain][0]
+            connection = self.ldap.initialize(uri, bytes_mode=False)
+
+            for opt, value in self.settings.CONNECTION_OPTIONS.items():
+               connection.set_option(opt, value)
+
+            if self.settings.START_TLS:
+                logger.debug("Initiating TLS %s", domain)
+                connection.start_tls_s()
+            connection.simple_bind_s(self.settings.BIND_DN, self.settings.BIND_PASSWORD)
+            self.__get_connection[domain] = connection
+        return self.__get_connection[domain]
+
 
 def _decorate_enterprise_user(user, provider):
     user.set_unusable_password()
