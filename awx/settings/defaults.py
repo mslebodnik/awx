@@ -338,6 +338,7 @@ AUTHENTICATION_BACKENDS = (
     'awx.sso.backends.LDAPBackend3',
     'awx.sso.backends.LDAPBackend4',
     'awx.sso.backends.LDAPBackend5',
+    'awx.sso.backends.LDAPDomainBackend',
     'awx.sso.backends.RADIUSBackend',
     'awx.sso.backends.TACACSPlusBackend',
     'social_core.backends.google.GoogleOAuth2',

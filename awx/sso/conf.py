@@ -17,7 +17,9 @@ from awx.sso.fields import (
     LDAPDNWithUserField, LDAPGroupTypeField, LDAPGroupTypeParamsField,
     LDAPOrganizationMapField, LDAPSearchField, LDAPSearchUnionField,
     LDAPServerURIField, LDAPTeamMapField, LDAPUserAttrMapField,
-    LDAPUserFlagsField, SAMLContactField, SAMLEnabledIdPsField,
+    LDAPUserFlagsField, LDAPDomainControllersField,
+    LDAPDomainUsersField, LDAPDomainGroupSearchField,
+    SAMLContactField, SAMLEnabledIdPsField,
     SAMLOrgAttrField, SAMLOrgInfoField, SAMLSecurityField, SAMLTeamAttrField,
     SocialOrganizationMapField, SocialTeamMapField,
 )
@@ -142,23 +144,41 @@ register(
 ###############################################################################
 
 
-def _register_ldap(append=None):
-    append_str = '_{}'.format(append) if append else ''
+def _register_ldap(append=None, is_domain=False):
+    if is_domain:
+        append_str = '_AD'
+    else:
+        append_str = '_{}'.format(append) if append else ''
 
-    register(
-        'AUTH_LDAP{}_SERVER_URI'.format(append_str),
-        field_class=LDAPServerURIField,
-        allow_blank=True,
-        default='',
-        label=_('LDAP Server URI'),
-        help_text=_('URI to connect to LDAP server, such as "ldap://ldap.example.com:389" '
-                    '(non-SSL) or "ldaps://ldap.example.com:636" (SSL). Multiple LDAP '
-                    'servers may be specified by separating with spaces or commas. LDAP '
-                    'authentication is disabled if this parameter is empty.'),
-        category=_('LDAP'),
-        category_slug='ldap',
-        placeholder='ldaps://ldap.example.com:636',
-    )
+    if is_domain:
+        register(
+            'AUTH_LDAP{}_DOMAIN_SERVERS'.format(append_str),
+            field_class=LDAPDomainControllersField,
+            default={},
+            label=_('Active Directory Domain controllers'),
+            help_text=_('Set Domain LDAP server and Base DN for each domain'),
+            category=_('LDAP'),
+            category_slug='ldap',
+            placeholder=collections.OrderedDict([
+                ('DOMAIN1', ("ldaps://ldap_server1", "DC=domain1,DC=example,DC=com")),
+                ('DOMAIN2', ("ldaps://ldap_server2", "DC=domain2,DC=exmaplem,DC=com"))
+            ])
+        )
+    else:
+        register(
+            'AUTH_LDAP{}_SERVER_URI'.format(append_str),
+            field_class=LDAPServerURIField,
+            allow_blank=True,
+            default='',
+            label=_('LDAP Server URI'),
+            help_text=_('URI to connect to LDAP server, such as "ldap://ldap.example.com:389" '
+                        '(non-SSL) or "ldaps://ldap.example.com:636" (SSL). Multiple LDAP '
+                        'servers may be specified by separating with spaces or commas. LDAP '
+                        'authentication is disabled if this parameter is empty.'),
+            category=_('LDAP'),
+            category_slug='ldap',
+            placeholder='ldaps://ldap.example.com:636',
+        )
 
     register(
         'AUTH_LDAP{}_BIND_DN'.format(append_str),
@@ -215,25 +235,53 @@ def _register_ldap(append=None):
         ]),
     )
 
-    register(
-        'AUTH_LDAP{}_USER_SEARCH'.format(append_str),
-        field_class=LDAPSearchUnionField,
-        default=[],
-        label=_('LDAP User Search'),
-        help_text=_('LDAP search query to find users.  Any user that matches the given '
-                    'pattern will be able to login to Tower.  The user should also be '
-                    'mapped into a Tower organization (as defined in the '
-                    'AUTH_LDAP_ORGANIZATION_MAP setting).  If multiple search queries '
-                    'need to be supported use of "LDAPUnion" is possible. See '
-                    'Tower documentation for details.'),
-        category=_('LDAP'),
-        category_slug='ldap',
-        placeholder=(
-            'OU=Users,DC=example,DC=com',
-            'SCOPE_SUBTREE',
-            '(sAMAccountName=%(user)s)',
-        ),
-    )
+    if is_domain:
+        register(
+            'AUTH_LDAP{}_DOMAIN_USER_SEARCH'.format(append_str),
+            field_class=LDAPDomainUsersField,
+            default={},
+            label=_('Domain based LDAP User Search'),
+            help_text=_('LDAP search query to find users.  Any user that matches the given '
+                        'pattern will be able to login to Tower.  The user should also be '
+                        'mapped into a Tower organization (as defined in the '
+                        'AUTH_LDAP_ORGANIZATION_MAP setting).  If multiple search queries '
+                        'need to be supported use of "LDAPUnion" is possible. See '
+                        'Tower documentation for details.'),
+            category=_('LDAP'),
+            category_slug='ldap',
+            placeholder=collections.OrderedDict([
+                ('DOMAIN1',(
+                    'OU=Users,DC=domain1,DC=example,DC=com',
+                    'SCOPE_SUBTREE',
+                    '(sAMAccountName=%(user)s)',
+                )),
+                ('DOMAIN2',(
+                    'OU=Users,DC=domain2,DC=example,DC=com',
+                    'SCOPE_SUBTREE',
+                    '(sAMAccountName=%(user)s)',
+                )),
+            ])
+        )
+    else:
+        register(
+            'AUTH_LDAP{}_USER_SEARCH'.format(append_str),
+            field_class=LDAPSearchUnionField,
+            default=[],
+            label=_('LDAP User Search'),
+            help_text=_('LDAP search query to find users.  Any user that matches the given '
+                        'pattern will be able to login to Tower.  The user should also be '
+                        'mapped into a Tower organization (as defined in the '
+                        'AUTH_LDAP_ORGANIZATION_MAP setting).  If multiple search queries '
+                        'need to be supported use of "LDAPUnion" is possible. See '
+                        'Tower documentation for details.'),
+            category=_('LDAP'),
+            category_slug='ldap',
+            placeholder=(
+                'OU=Users,DC=example,DC=com',
+                'SCOPE_SUBTREE',
+                '(sAMAccountName=%(user)s)',
+            ),
+        )
 
     register(
         'AUTH_LDAP{}_USER_DN_TEMPLATE'.format(append_str),
@@ -270,22 +318,40 @@ def _register_ldap(append=None):
         ]),
     )
 
-    register(
-        'AUTH_LDAP{}_GROUP_SEARCH'.format(append_str),
-        field_class=LDAPSearchField,
-        default=[],
-        label=_('LDAP Group Search'),
-        help_text=_('Users are mapped to organizations based on their membership in LDAP'
-                    ' groups. This setting defines the LDAP search query to find groups. '
-                    'Unlike the user search, group search does not support LDAPSearchUnion.'),
-        category=_('LDAP'),
-        category_slug='ldap',
-        placeholder=(
-            'DC=example,DC=com',
-            'SCOPE_SUBTREE',
-            '(objectClass=group)',
-        ),
-    )
+    if is_domain:
+        # it does support LDAPSearchUnion
+        register(
+            'AUTH_LDAP{}_GROUP_SEARCH'.format(append_str),
+            field_class=LDAPDomainGroupSearchField,
+            default=[],
+            label=_('LDAP Group Search'),
+            help_text=_('Users are mapped to organizations based on their membership in LDAP'
+                        'groups. This setting defines the LDAP search query to find groups.'),
+            category=_('LDAP'),
+            category_slug='ldap',
+            placeholder=(
+                'DC=example,DC=com',
+                'SCOPE_SUBTREE',
+                '(objectClass=group)',
+            ),
+        )
+    else:
+        register(
+            'AUTH_LDAP{}_GROUP_SEARCH'.format(append_str),
+            field_class=LDAPSearchField,
+            default=[],
+            label=_('LDAP Group Search'),
+            help_text=_('Users are mapped to organizations based on their membership in LDAP'
+                        ' groups. This setting defines the LDAP search query to find groups. '
+                        'Unlike the user search, group search does not support LDAPSearchUnion.'),
+            category=_('LDAP'),
+            category_slug='ldap',
+            placeholder=(
+                'DC=example,DC=com',
+                'SCOPE_SUBTREE',
+                '(objectClass=group)',
+            ),
+        )
 
     register(
         'AUTH_LDAP{}_GROUP_TYPE'.format(append_str),
@@ -424,6 +490,7 @@ _register_ldap('2')
 _register_ldap('3')
 _register_ldap('4')
 _register_ldap('5')
+_register_ldap(is_domain=True)
 
 ###############################################################################
 # RADIUS AUTHENTICATION SETTINGS
