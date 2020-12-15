@@ -9,6 +9,7 @@ from django.utils.encoding import force_str
 
 # 3rd party
 from django_auth_ldap.config import LDAPGroupType
+from django_auth_ldap.config import NestedActiveDirectoryGroupType
 
 
 class PosixUIDGroupType(LDAPGroupType):
@@ -73,3 +74,33 @@ class PosixUIDGroupType(LDAPGroupType):
             is_member = False
 
         return is_member
+
+class ReferralADGroupType(NestedActiveDirectoryGroupType):
+    def user_groups(self, ldap_user, group_search):
+        self.ldap_user = ldap_user
+        ret = super(ReferralADGroupType, self).user_groups(ldap_user, group_search)
+        #logger.info("User groups are %s", ret)
+        return ret
+
+    def find_groups_with_any_member(self, member_dn_set, group_search, connection):
+        terms = [
+            "({}={})".format(self.member_attr, self.ldap.filter.escape_filter_chars(dn))
+            for dn in member_dn_set
+        ]
+
+        filterstr = "(|{})".format("".join(terms))
+        if hasattr(group_search, "searches"):
+            searches = [s.search_with_additional_term_string(filterstr) for s in group_search.searches]
+        else:
+            searches = [group_search.search_with_additional_term_string(filterstr)]
+        
+        ret = []
+        for search in searches:
+            if self.ldap_user.backend.is_referral(search.base_dn):
+                search_conn = self.ldap_user.backend.connection_to(search.base_dn)    
+            else:
+                search_conn = connection
+            s_res = search.execute(search_conn)
+            if s_res:
+                ret.extend(s_res)
+        return ret
