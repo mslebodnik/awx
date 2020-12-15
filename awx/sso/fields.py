@@ -166,6 +166,9 @@ class AuthenticationBackendsField(fields.StringListField):
         ('awx.sso.backends.LDAPBackend5', [
             'AUTH_LDAP_5_SERVER_URI',
         ]),
+        ('awx.sso.backends.LDAPDomainBackend', [
+            'AUTH_LDAP_AD_DOMAIN_SERVERS',
+        ]),
         ('awx.sso.backends.RADIUSBackend', [
             'RADIUS_SERVER',
         ]),
@@ -561,6 +564,47 @@ class LDAPSingleTeamMapField(HybridDictField):
 class LDAPTeamMapField(fields.DictField):
 
     child = LDAPSingleTeamMapField()
+
+
+class LDAPDomainServerField(fields.ListField):
+
+    default_error_messages = {
+        'invalid_length': _('Expected a list of two items but got {length} instead.'),
+        'type_error': _('Expected an instance of tuple but got {input_type} instead.'),
+    }
+
+    def to_representation(self, value):
+        if not value:
+            return []
+        if not isinstance(value, tuple):
+            self.fail('type_error', input_type=type(value))
+        return [
+            LDAPServerURIField().to_representation(value[0]),
+            LDAPDNField().to_representation(value[1]),
+        ]
+
+    def to_internal_value(self, data):
+        data = super(LDAPDomainServerField, self).to_internal_value(data)
+        if len(data) == 0:
+            return None
+        if len(data) != 2:
+            self.fail('invalid_length', length=len(data))
+        return (
+            LDAPServerURIField().run_validation(data[0]),
+            LDAPDNField().run_validation(data[1]),
+        )
+
+
+class LDAPDomainControllersField(fields.DictField):
+    child = LDAPDomainServerField()
+
+
+class LDAPDomainUsersField(fields.DictField):
+    child = LDAPSearchUnionField()
+
+
+class LDAPDomainGroupSearchField(LDAPSearchUnionField):
+    ldap_search_field_class = LDAPSearchField
 
 
 class SocialMapStringRegexField(fields.CharField):
